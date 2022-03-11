@@ -11,7 +11,7 @@ library(data.table)
 library(caret)
 library(kernlab)
 
-setwd("C:/_Mazin/_UCSF ID fellowship/_UCSF TICR courses/_BIOSTAT 216_Machine learning in R")
+# setwd("")
 ```
 
 
