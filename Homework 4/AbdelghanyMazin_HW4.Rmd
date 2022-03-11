@@ -1,0 +1,196 @@
+---
+title: 'Homework #4: Boosting, Dimension reduction, Clustering'
+output: html_document
+---
+
+```{r setup, echo=FALSE, message=FALSE}
+set.seed(7)
+library(data.table)
+library(caret)
+```
+
+1. Load the iSPY1 dataset by running the following. Notice that there is a `fakeSite` column with values ranging from 1-8.
+We've added this column to simulate combining data from 8 different sites.
+```{r data}
+ispy_dat <- fread("ispy1doctored_site.csv")
+```
+
+2. (1 point) Hold out sites 7 and 8 for testing. Store the training data in `datTrain` and the test data in `datTest`.
+```{r}
+# make HER2status a factor
+ispy_dat$HR_HER2status <- factor(ispy_dat$HR_HER2status)
+
+# split the data into train and test
+datTest <- ispy_dat[fakeSite %in% c(7,8)]
+datTrain <- ispy_dat[!fakeSite %in% c(7,8)]
+```
+
+3. (2 points) In this homework, we will manually implement site-wise 3-fold cross-validation (i.e. two sites per fold) 
+rather than using the `caret` package. Create binary masks to split the rows in `datTrain` into 3 folds, where sites 1 
+and 2 are in the first fold, sites 3 and 4 are in the second fold, and sites 5 and 6 are in the third fold. Create a list 
+with these three binary masks. It may be helpful to reference this list later in this homework.
+```{r}
+fold_list <- list(
+    fold1 = datTrain$fakeSite %in% c(1,2),
+    fold2 = datTrain$fakeSite %in% c(3,4),
+    fold3 = datTrain$fakeSite %in% c(5,6)
+)
+```
+
+
+## Boosting
+
+4. Load the `gbm` package.
+```{r, message=FALSE}
+library(gbm)
+```
+
+5. (3 points) We will select the hyperparameters for a gradient boosted model using site-wise three-fold CV. Create 
+a function named `fit_fold` that takes as input the fold number `fold_idx`, number of trees, and interaction depth. 
+The function will fit a gradient boosted model using `gbm` that predicts `MRI_LD_Tfinal` using all the predictors 
+except for `fakeSite`. Train on all the folds except for the `fold_idx`-th one. The function should output the 
+mean squared error of the fitted model on the held out fold.  Use the folds you made in question 3. Fix the 
+shrinkage hyperparameter in `gbm` as 0.01.
+```{r}
+fit_fold <- function(fold_idx, ntrees, depth){
+    # split the training data into train/test for cross validation
+    datTrain_forModel <- datTrain[!fold_list[[fold_idx]]]
+    datTest_forModel <- datTrain[fold_list[[fold_idx]]]
+    
+    # fit the model using the training data
+    gbm_model <- gbm(formula = MRI_LD_Tfinal ~ .-fakeSite,
+                     data = datTrain_forModel,
+                     n.trees = ntrees,
+                     interaction.depth = depth,
+                     shrinkage = 0.01,
+                     n.minobsinnode = 10)
+    
+    # predict using the model on the test data
+    predictions <- predict(gbm_model, newdata = datTest_forModel)
+    
+    # calculate and return the MSE
+    MSE <- mean((datTest_forModel$MRI_LD_Tfinal - predictions)^2)
+    return(MSE)
+}
+```
+
+6. (4 points) Using the function you made in question 5, tune the number of trees and interaction depth using 
+site-wise three-fold CV. Search over the values `n.trees=100, 200, 400, 800, 1600` and `interaction.depth=1, 2`. 
+Which hyperparameter values minimize the cross-validated mean squared error?
+```{r, message=FALSE}
+# create the tuning matrix
+n_fold <- c(1, 2, 3)
+n_trees <- c(100, 200, 400, 800, 1600)
+interaction_depth <- c(1, 2)
+tune.grid <- expand.grid(n_fold = n_fold,
+                         ntrees = n_trees, 
+                         depth = interaction_depth)
+
+# create a cross validate function
+set.seed(7)
+cross.validate <- function(parameters){
+    fit_fold(parameters[1], parameters[2], parameters[3])
+}
+```
+```{r, message=FALSE, results='hide'}
+# get all the MSEs
+all_MSE <- apply(tune.grid, 1, cross.validate)
+```
+```{r}
+# get the mean MSE for every 3 elements in the vector given structure of tune grid
+cv_MSE <- sapply(seq(1,30,3), function(x){mean(all_MSE[x:(x+2)])})
+
+# get which index has the lowest MSE
+# multiply by three because cv_MSE is in groups of three
+bestCV <- which.min(cv_MSE)*3
+tune.grid[bestCV,2:3]
+
+# confirm answer with `caret` package
+fold_list_index <- list(fold1=which(!fold_list[[1]]),
+                        fold2=which(!fold_list[[2]]),
+                        fold3=which(!fold_list[[3]]))
+
+tune.grid2 <- expand.grid(n.trees = n_trees,
+                          interaction.depth = interaction_depth,
+                          shrinkage = 0.01,
+                          n.minobsinnode = 10)
+
+fitControl <- trainControl(method = "cv", number = 3,
+                           index = fold_list_index,
+                           returnResamp = "all")
+```
+```{r, message=FALSE, results='hide'}
+set.seed(7)
+gbm.cv3.byFold <- train(form = MRI_LD_Tfinal ~ .-fakeSite,
+                        data = datTrain,
+                        trControl = fitControl,
+                        method = "gbm",
+                        tuneGrid = tune.grid2)
+```
+```{r}
+gbm.cv3.byFold$bestTune[,1:2]
+```
+
+7. (2 points) Plot the cross-validated error with respect to `n.trees`. Keep `interaction.depth` fixed at 1.
+```{r}
+plot(n_trees, cv_MSE[1:5], ylim=c(300,500), type = "l",
+     main = "Mean cross-validated error by number of trees, interaction depth=1",
+     ylab = "Cross validated mean squared error",
+     xlab = "Number of trees")
+abline(v=400, col="red")
+legend(x="topright", legend = "400 trees, min CV error", lty=1, col = "red")
+```
+
+8. (1 point) Refit the gradient boosted model on all the training data (`datTrain`) using the hyperparameters that minimized the CV error.
+```{r}
+gbm.total <- gbm(formula = MRI_LD_Tfinal ~ .-fakeSite,
+                 data = datTrain,
+                 n.trees = 400,
+                 interaction.depth = 1,
+                 shrinkage = 0.01)
+```
+
+9. (1 point) Evaluate the MSE of the fitted model on the test data.
+```{r}
+preds <- predict(gbm.total, datTest[,-c("fakeSite")])
+(MSE2 <- mean((datTest$MRI_LD_Tfinal - preds)^2))
+```
+
+
+## Kmeans
+
+10. (1 point) Let's perform kmeans on the iSPY data. Remove the columns "race", "HR_HER2status", and "fakeSite". 
+Call this new dataset `ispy_subdat`.
+```{r}
+ispy_subdat <- ispy_dat[,-c("race", "HR_HER2status", "fakeSite")]
+```
+
+11. (3 points) Tune the number of clusters used in K-means. To do this, use the function `fviz_nbclust` from the `factoextra` 
+library. The function `fviz_nbclust` determines and visualizes the optimal number of clusters using different methods 
+(within cluster sums of squares, average silhouette and gap statistics). Plot the average silhouette with respect to 
+the number of clusters by passing in the argument `method="silhouette"`. What is the optimal number of clusters according 
+to the silhouette statistic?
+```{r}
+# scale and center the data
+scaled_ispy_subdat <- scale(ispy_subdat)
+
+# load factoextra
+library(factoextra)
+
+# run fviz
+fviz_nbclust(x=scaled_ispy_subdat,
+             FUNcluster = kmeans,
+             method = "silhouette")
+```
+
+The optimal number of clusters based on average silhouette width is 3.
+
+12. (3 points) Refit k-means using the optimal number of clusters with 15 random initializations. Use the 
+function `fviz_cluster()` to plot the clusters from K-means. Observations are represented by points in the plot,
+using principal components if $p > 2$. An ellipse is drawn around each cluster.
+```{r}
+fviz_cluster(
+    kmeans(scaled_ispy_subdat, centers = 3, iter.max = 15),
+    data = scaled_ispy_subdat
+)
+```
