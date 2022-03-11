@@ -1,0 +1,420 @@
+---
+title: "Hwk #2: Classification methods and Penalization"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Epi)
+library(ROCit)
+library(data.table)
+library(MASS)
+```
+
+For this homework we will use NHANES data that exists in a package for R.
+
+NHANES consists of survey data collected by the US National Center for Health Statistics (NCHS) which has conducted a series of health 
+and nutrition surveys since the early 1960's. Since 1999 approximately 5,000 individuals of all ages are interviewed in their homes 
+every year and complete the health examination component of the survey. The health examination is conducted in a mobile examination center (MEC).
+
+Note that there is the following warning on the NHANES website:
+“For NHANES datasets, the use of sampling weights and sample design variables is recommended for all analyses because the sample 
+design is a clustered design and incorporates differential probabilities of selection. If you fail to account for the sampling 
+parameters, you may obtain biased estimates and overstate significance levels.”
+
+For this homework, please ignore this warning and just apply our analyses to the data as if they were randomly sampled! 
+We will be using the data called `NHANESraw`.
+
+For questions that ask for your comments, it suffices to answer with one or two sentences in each case.
+
+## Data Preparation
+
+1. Install the package `NHANES` into R, load the `NHANES` package, and then run the command `data(NHANES)` which will load the NHANES data. 
+Type `?NHANES` and read about the dataset.
+```{r}
+# Code is commented out for knitting.
+# install.packages("NHANES")
+
+library("NHANES")
+data(NHANES)
+
+# ?NHANES
+```
+
+2. Make an object `nhanes` that is a subset version `NHANESraw` that does not include any missing data for `Diabetes`, `BPSysAve`, `BPDiaAve`, or `Age`.
+```{r}
+nhanes <- copy(NHANESraw)
+setDT(nhanes)
+
+nhanes <- nhanes[!is.na(Diabetes),]
+nhanes <- nhanes[!is.na(BPSysAve),]
+nhanes <- nhanes[!is.na(BPDiaAve),]
+nhanes <- nhanes[!is.na(Age),]
+```
+
+3. (1 point) Further subset the data such the observations with `BPDiaAve` equal to zero are removed.
+```{r}
+nhanes <- nhanes[!BPDiaAve == 0]
+```
+
+4. (1 point)
+Make an object `nhanes09` that is a subset of `nhanes` to only the 2009_10 data. This will be your training dataset. Also make 
+an object `nhanes11` that is a subset of `nhanes` to only the 2011_12 data. This will be your test dataset.
+```{r}
+nhanes09 <- nhanes[SurveyYr == "2009_10"]
+nhanes09$SurveyYr <- droplevels(nhanes09$SurveyYr)
+
+nhanes11 <- nhanes[SurveyYr == "2011_12"]
+nhanes11$SurveyYr <- droplevels(nhanes11$SurveyYr)
+```
+
+## Logistic regression
+
+5. (2 point) Fit a logistic regression model (call it `glm1`) using the `nhanes09` dataset. Use `Diabetes` as the outcome and 
+averaged systolic blood pressure (`BPSysAve`) as a single predictor. Use the summary command to examine the fitted model. 
+Generate the 95% confidence intervals for the `BPSysAve` coefficient.
+```{r}
+glm1 <- glm(Diabetes ~ BPSysAve, data = nhanes09, family = "binomial")
+summary(glm1)
+confint(glm1)
+```
+
+6. (1 point) Generate the estimate and 95% confidence interval for the odds-ratio associated with BPSysAve. Summarize the result.
+```{r}
+# odds ratio
+exp(coefficients(glm1))
+
+# confidence interval for the odds ratio
+exp(confint(glm1))
+```
+For every 1 mmHg increase in a participant's average systolic blood pressure, s/he has 1.03 (95% CI, 1.026 - 1.033) times the odds 
+of having diabetes. In other words, for every 1 mmHg increase in a participant's average systolic blood pressure, s/he has a 3% higher 
+odds of having diabetes.
+
+7. (1 point) Predict the probabilities of diabetes associated with each of the training observations of `BPSysAve`. Make a vector of
+predictions for diabetes based on whether the predictions are above or below 0.5.
+```{r}
+# predict the probabilities
+predictions <- predict(glm1, type = "response")
+
+# vector of predictions
+# 0 is no diabetes if the predicted probability is <=0.5
+# 1 is yes diabetes if the predicted probability is >0.5
+diabetes_pred <- ifelse(predictions <= 0.5, 0, 1)
+
+# make this a factor equivalent to the nhanes09 dataset
+diabetes_pred <- factor(diabetes_pred, labels = c("No", "Yes"))
+```
+
+8. (1 point) Generate a confusion matrix that shows the number of false positives, false negatives, true positives, and true 
+negatives in the training data. The rows should correspond to the true diabetes status and the columns should correspond to the 
+predicted values.
+```{r}
+table(true_status = nhanes09$Diabetes, predictions = diabetes_pred)
+```
+
+9. (1 point) Find the proportion of correctly classified observations in the training data.
+```{r}
+mean(nhanes09$Diabetes == diabetes_pred)
+```
+
+10. (2 points) Now repeat questions 7 to 9 but for predicting the test dataset.
+```{r}
+# predict the probabilities
+predictions_test <- predict(glm1, newdata = nhanes11, type = "response")
+
+# vector of predictions
+# 0 is no diabetes if the predicted probability is <=0.5
+# 1 is yes diabetes if the predicted probability is >0.5
+diabetes_pred_test1 <- ifelse(predictions_test <= 0.5, 0, 1)
+
+# make this a factor equivalent to the nhanes11 dataset
+diabetes_pred_test1 <- factor(diabetes_pred_test1, labels = c("No", "Yes"))
+
+# confusion matrix
+table(true_status = nhanes11$Diabetes, predictions = diabetes_pred_test1)
+
+# accuracy
+mean(nhanes11$Diabetes == diabetes_pred_test1)
+```
+
+11. (1 point) Comment on the difference in results between the training and test prediction tables and classification accuracies.
+```{r}
+mean(nhanes11$Diabetes == "No")
+```
+There is little difference in the prediction tables and classification accuracies between the training and test datasets. 
+Importantly, the seemingly high accuracy in prediction is driven by model predicting "No" diabetes for nearly all observations.
+Because there are many more "No"s than "Yes"es, this inflates the accuracy significantly. A model that only predicted "No" for
+all observations would have an accuracy of 89.1%, better than the model's accuracy on the testing data!
+
+12. (1 point) Manually calculate the sensitivity and specificity estimates for the test dataset based on the 0.5 threshold.
+```{r}
+# sensitivity
+4/(4+757)
+
+# specificity
+6195/(6195+13)
+```
+
+13. (2 points) Generate an ROC curve using the test data. What is the AUC and its 95% confidence interval?
+```{r}
+rocit_obj <- rocit(score = predictions_test, class = nhanes11$Diabetes)
+plot(rocit_obj)
+```
+
+14. What value can you use to threshold the predicted probability to achieve a sensitivity of at least 0.6 and a specificity of at least 0.3?
+```{r}
+ROC(test = predictions_test, stat = nhanes11$Diabetes, plot = "ROC")
+```
+
+By using the `ROC()` function in the `Epi` package, an optimal threshold of the predicted probability is identified on the ROC 
+curve plot. Setting the predicted probability threshold to ~0.113 will give the model a sensitivity of 61.5% and a specificity of 72.6%.
+
+15. (2 points) Comment on the results of the analyses for the different thresholds in terms of the tables, classification accuracies,
+and sensitivity and specificity. Under what circumstances might you prefer each of the thresholds?
+```{r}
+# setting the threshold based on the optimal point in the above curve
+diabetes_pred_test2 <- ifelse(predictions_test <= 0.113, 0, 1)
+
+# make this a factor equivalent to the nhanes11 dataset
+diabetes_pred_test2 <- factor(diabetes_pred_test2, labels = c("No", "Yes"))
+
+# confusion matrix
+table(true_status = nhanes11$Diabetes, predictions = diabetes_pred_test2)
+
+# data table of threshold 0.5 vs threshold 0.11
+data.table(
+    threshold = c("0.5", "0.113"),
+    accuracy = c(mean(nhanes11$Diabetes == diabetes_pred_test1), 
+                 mean(nhanes11$Diabetes == diabetes_pred_test2)),
+    sensitivity = c(4/(4+757), 468/(468+293)),
+    specificity = c(6195/(6195+13), 4509/(1699+4509))
+)
+```
+Setting the threshold probability at 0.5 generates predictions that are excellent at reducing false positives (i.e., patients are 
+most likely to be labeled as "No diabetes"). This would be an ideal threshold if diagnosing someone with diabetes would trigger 
+invasive testing, but missing cases of diabetes would not be harmful. As illustrated above, a threshold of 0.5 is akin to predicting 
+that all participants did **not** have diabetes. 
+
+Setting the threshold probability at 0.113 generates predictions that are less accurate (i.e, more incorrect predictions), but balance
+the sensitivity and specificity. In this case, there are a larger number of false positives and false negatives, but patients are more 
+likely to be diagnosed as having diabetes than a threshold of 0.5. This would be preferable if there was low harm in a false positive
+test and benefit to starting treatment for diabetes when a patient truly had it.
+
+16. (2 points) Fit a multiple predictor logistic regression (call it `glm2`) with `Diabetes` as outcome and predictors: 
+`BPSysAve`, `BPDiaAve`, and `Age`. Use the `summary` command to examine the fitted model and determine the estimated 
+coefficients, odds-ratios, and 95% confidence intervals thereof.
+```{r}
+# fit the model
+glm2 <- glm(Diabetes ~ BPSysAve + BPDiaAve + Age, data = nhanes09, family = "binomial")
+
+# show the model summary
+summary(glm2)
+
+# list the estimated coefficients
+coefficients(glm2)
+
+# list the odds ratios
+exp(coefficients(glm2))
+
+# list the 95% confidence intervals of the odds ratios
+exp(confint(glm2))
+```
+
+17. (2 points) Generate an ROC curve for the `glm2` model using the test data. What is the AUC and its 95% confidence interval?
+```{r}
+rocit_obj2 <- rocit(score = predict(glm2, newdata = nhanes11, type = "response"),
+                    class = nhanes11$Diabetes)
+ROC(test = predict(glm2, newdata = nhanes11, type = "response"), 
+    stat = nhanes11$Diabetes, plot = "ROC")
+ciAUC(rocit_obj2)
+```
+
+18. (1 point) What is the maximum sensitivity level you can achieve if we require the specificity to be at least 0.3?
+```{r}
+table_sens.spec <- measureit(rocit_obj2, measure = c("SPEC", "SENS"))
+setDT(table_sens.spec)
+tail(table_sens.spec[SPEC >=0.3], 1)
+```
+The maximum sensitivity level that can be achieved if the specificity is required to be at least 0.3 is about 0.987 with a threshold of 0.023.
+
+19. (1 point) Would you prefer the single predictor or multiple predictor model if your objective was to maximize classification accuracy, and
+which threshold level would you choose? Comment on the reason for your choices.  
+Because there are so few cases of diabetes in the dataset, classification accuracy&mdash;in the strict sense&mdash;would be 
+maximized by predicting all participants as diabetes negative. Practically, however, this would not be a helpful model and would
+not be applicable clinically. Given that diabetes is a morbid condition that can cause blindness, severe infections, and kidney 
+failure, and confirmatory testing for diabetes is simple and non-invasive, a high sensitivity prediction model to identify at-risk 
+individuals would be best. Therefore, I would prefer the multiple predictor model (better AUC at a higher sensitivity and specificity). 
+This will tend to misclassify more patients overall as both having and not having diabetes (i.e., more false positives and false 
+negatives), but would be more useful as a clinical tool.
+
+## Linear discriminant analysis
+
+20. (2 points) Fit a linear discriminant analysis (`lda1`) with `Diabetes` as outcome and predictors of `BPSysAve`, `BPDiaAve`, 
+and `Age` in the training dataset. Examine the fit by typing `lda1`.
+```{r}
+lda1 <- lda(Diabetes ~ BPSysAve + BPDiaAve + Age, data = nhanes09)
+lda1
+```
+
+21. (2 points) Generate the confusion matrix for `lda1` using the test set. Compute the classification accuracy, sensitivity, and specificity.
+```{r}
+# generate predictions
+lda_predictions <- predict(lda1, newdata = nhanes11)
+
+# create confusion matrix
+table(true_status = nhanes11$Diabetes, predictions = lda_predictions$class)
+
+# accuracy
+mean(nhanes11$Diabetes == lda_predictions$class)
+
+# sensitivity
+23/(23+738)
+
+# specificity
+6158/(6158+50)
+```
+
+22. How do these measures compare with that of the logistic regression model with these predictors and 0.5 threshold?
+```{r}
+# set threshold at 0.5 and predict on logistic regression model
+pred_thresh_0.5 <- ifelse(predict(glm2, newdata = nhanes11, type = "response") <= 0.5, 0, 1)
+diabetes_multi.log <- factor(pred_thresh_0.5, levels = c(0,1), labels = c("No", "Yes"))
+
+data.table(
+    model = c("logistic", "LDA"),
+    accuracy = c(mean(nhanes11$Diabetes == diabetes_multi.log), 
+                 mean(nhanes11$Diabetes == lda_predictions$class)),
+    sensitivity = c(0/761, 23/(23+738)),
+    specificity = c(6208/6208, 6158/(6158+50))
+)
+```
+The logistic regression model has a slightly higher accuracy, but both models are nearly useless practically as has been 
+discussed in several other questions here. The specificity of both models is high, sacrificing sensitivity and either 
+(1) predicting very few people to have diabetes in the case of the LDA model or (2) predicting **no one** to have 
+diabetes in the case of the multivariate logistic regression model. The accuracy of both models is high because a majority 
+of participants do not have diabetes in the dataset and by only predicting "No" diabetes, the accuracy is equivalent to 
+the proportion of patients without diabetes.
+
+23. (3 points) Redo question 21 but with prior probabilities set to 0.5 for diabetes.
+```{r}
+# generate predictions with prior probabilities set to 0.5
+lda_predictions.prior <- predict(lda1, newdata = nhanes11,
+                                 prior = c(No = 0.5, Yes = 0.5))
+
+# create confusion matrix
+table(true_status = nhanes11$Diabetes, predictions = lda_predictions.prior$class)
+
+# accuracy
+mean(nhanes11$Diabetes == lda_predictions.prior$class)
+
+# sensitivity
+565/(565+196)
+
+# specificity
+4630/(4630+1578)
+```
+
+24. (2 points) Comment on how LDA's performance changed when we changed the prior probabilities.
+```{r}
+data.table(
+    prior.prob = c("default", "50-50"),
+    accuracy = c(mean(nhanes11$Diabetes == lda_predictions$class),
+                 mean(nhanes11$Diabetes == lda_predictions.prior$class)),
+    sensitivity = c(23/(23+738), 565/(565+196)),
+    specificity = c(6158/(6158+50), 4630/(4630+1578))
+)
+```
+By changing the prior probabilities of the LDA model from the default (set to the probabilities in the training set) 
+to 50-50, the model's specificity worsened while its sensitivity improved with an overall decrease in accuracy. In other 
+words, the 50-50 model is more likely to generate more false negatives while improving the number of true positives 
+called. Again, because the majority of the data set (~90%) do not have diabetes, the accuracy also worsens with a 
+more sensitive model. A model that predicted "No" diabetes for every participant with have an accuracy of ~90% and a 
+specificty of 100%, but would be completely useless, practically. 
+
+## Penalized regression
+
+26. Read in the dementia data "dementia2.csv" into a data frame called `dementia_dat`. This dataset 
+contains measurements obtained from MRI brain scans and whether or not the patient has dementia. We'll 
+try to build a prediction model for diagnosing dementia based on these derived measurements. How many 
+observations are in this dataset? How many predictors are in this dataset?
+```{r}
+# read in the data
+dementia_dat <- fread("dementia2.csv")
+
+# how many observations?
+nrow(dementia_dat)
+
+# how many predictors?
+ncol(dementia_dat)
+```
+
+27. Load the `glmnet` and `caret` packages.
+```{r}
+library(glmnet)
+library(caret)
+```
+
+28. (1 point) Set the random seed to 4 and then split the data into 2 sets (400 train, and 260 test) 
+```{r}
+# set the seed
+set.seed(4)
+
+# get the sampling index
+dementia_dat$Dementia <- factor(dementia_dat$Dementia)
+samplerIndex <- createDataPartition(dementia_dat$Dementia, times = 1, p = 399/660,
+                                    list = FALSE)
+
+# training set
+train_dementia <- dementia_dat[samplerIndex,]
+nrow(train_dementia)
+
+# test set
+test_dementia <- dementia_dat[-samplerIndex,]
+nrow(test_dementia)
+```
+
+29. (4 points) Perform cross-validated lasso in the training data to select the optimal penalty parameter lambda.
+Use 5 folds and search over the range $\lambda = 10^{3}$ to $\lambda = 10^{-3}$. Set `Dementia` as outcome with 
+all other variables as predictors except `MacCohort_kr`. Use the `caret` package to do CV.
+```{r}
+# do 5-fold cross-validation
+fitControl <- trainControl(method = "cv", number = 5)
+
+# set the range of lambdas to tune across
+lambda.range <- 10^seq(from = -3, to = 3, by = 0.05)
+
+# create a matrix of tuning parameters
+tune.matrix <- data.frame(lambda = lambda.range, alpha = 1)
+
+# train the model using cross-validation
+cv.model <- train(Dementia ~ . - MacCohort_kr,
+                  data = train_dementia,
+                  trControl = fitControl,
+                  method = "glmnet",
+                  tuneGrid = tune.matrix)
+```
+
+30. (1 point) What is the optimal value of lambda?
+```{r}
+cv.model$bestTune
+```
+
+
+31. (1 point) Generate the confusion matrix for this final model.
+```{r}
+# get the test data ready for the predict() function
+test_matrix <- model.matrix(Dementia~.-MacCohort_kr, data = test_dementia)[,-1]
+
+# generate the predictions
+cv.predictions <- predict(cv.model$finalModel, s = cv.model$bestTune[,2],
+                          newx = test_matrix, type = "class")
+
+# generate the confusion matrix
+table(true_status = test_dementia$Dementia, predictions = cv.predictions)
+```
+
+32. (1 point) How many non-zero coefficients are in the final model?
+```{r}
+sum( abs(coef(cv.model$finalModel, s = cv.model$bestTune[,2])) > 0 )
+```
