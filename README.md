@@ -2,7 +2,7 @@
 ## University of California, San Francisco (UCSF)
 ### BIOSTAT 216 - Machine Learning in R
 
-This is a repository of assignments that I completed during a three-month course on machine learning methods using R. Each assignment is in the `RMarkdown` format. All required packages are listed in the `{r setup}` code block. Data required for the analyses is given in the .csv format in each folder.
+This is a repository of assignments that I completed during a three-month course on machine learning methods using R. Each assignment is in the `RMarkdown` format. All required packages are listed in the `{r setup}` code block. Each homework is organized by folder and all data required for the analyses is given in the .csv file format in each folder. The final `RMarkdown` output of each knit .Rmd file is also uploaded as an .html file in each folder.
 
 1. **Homework 1:** Regression
 2. **Homework 2:** Classification methods and penalization
