@@ -1,0 +1,274 @@
+---
+title: "Hwk #1:  Regression"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(data.table)
+```
+
+For this homework we will use NHANES data that exists in a package for R.
+
+NHANES consists of survey data collected by the US National Center for Health Statistics (NCHS) which has conducted a series of health and nutrition surveys since the early 1960's. Since 1999 approximately 5,000 individuals of all ages are interviewed in their homes every year and complete the health examination component of the survey. The health examination is conducted in a mobile examination center (MEC).
+
+Note that there is the following warning on the NHANES website:
+“For NHANES datasets, the use of sampling weights and sample design variables is recommended for all analyses because the sample design is a clustered design and incorporates differential probabilities of selection. If you fail to account for the sampling parameters, you may obtain biased estimates and overstate significance levels.”
+
+For this homework, please ignore this warning and just apply our analyses to the data as if they were randomly sampled! We will be using the data called `NHANESraw`.
+
+For questions that ask for your comments, it suffices to answer with one or two sentences in each case.
+
+## Data Preparation
+
+1. Install the package `NHANES` into R, load the `NHANES` package, and then run the command `data(NHANES)` which will load the NHANES data. Type `?NHANES` and read about the dataset.
+```{r}
+# Code is commented out for knitting.
+# install.packages("NHANES")
+
+library("NHANES")
+data(NHANES)
+?NHANES
+```
+
+2. Make an object `nhanes` that is a subset version `NHANESraw` that does not include any missing data for `Diabetes`, `BPSysAve`, `BPDiaAve`
+```{r}
+nhanes <- copy(NHANESraw)
+setDT(nhanes)
+
+nhanes <- nhanes[!is.na(Diabetes),]
+nhanes <- nhanes[!is.na(BPSysAve),]
+nhanes <- nhanes[!is.na(BPDiaAve),]
+
+```
+
+3. (1 point) Plot `BPSysAve` against `BPDiaAve`. Comment on what is going on.
+Further subset the data such the observations with `BPDiaAve` equal to zero are removed.
+```{r}
+# plot the variables requested
+plot(nhanes$BPDiaAve, nhanes$BPSysAve)
+```
+There is a positive relationship between `BPDiaAve` and `BPSysAve.` That is, as `BPDiaAve` increases, `BPSysAve` also increases. There are also several points of `BPDiaAve` that are equal to zero.
+```{r}
+# remove BPDiaAve = 0
+nhanes <- nhanes[!BPDiaAve == 0]
+
+# confirm that the BPDiaAve = 0 have been removed
+plot(nhanes$BPDiaAve, nhanes$BPSysAve)
+```
+
+4. (1 point)
+Make an object `nhanes09` that is a subset of `nhanes` to only the 2009_10 data. This will be your training dataset. Also make an object `nhanes11` that is a subset of `nhanes` to only the 2011_12 data. This will be your test dataset.
+```{r}
+# subset the training data frame
+nhanes09 <- nhanes[SurveyYr == "2009_10"]
+
+# drop the empty factor levels of SurveyYr in nhanes09
+nhanes09$SurveyYr <- droplevels(nhanes09$SurveyYr)
+
+# subset the testing data frame
+nhanes11 <- nhanes[SurveyYr == "2011_12"]
+
+# drop the empty factor levels of SurveyYr in nhanes09
+nhanes11$SurveyYr <- droplevels(nhanes11$SurveyYr)
+```
+
+## Linear regression
+
+5. (1 point) Plot `BPSysAve` against `BPDiaAve` for the training data.
+```{r}
+plot(nhanes09$BPDiaAve, nhanes09$BPSysAve)
+```
+
+6. (2 points) Fit a linear model using the training data with `BPSysAve` as outcome and `BPDiaAve` as the single predictor.
+```{r}
+lm_training <- lm(BPSysAve ~ BPDiaAve, data = nhanes09)
+```
+
+7. (1 point) Use the `summary` command to examine the resulting fitted model.
+```{r}
+summary(lm_training)
+```
+
+8. (1 point) Generate 95% confidence intervals for the parameters of the fitted model.
+```{r}
+confint(lm_training)
+```
+
+9. (1 point) Also, generate 99% confidence intervals for the parameters of the fitted model.
+```{r}
+confint(lm_training, level = 0.99)
+```
+
+10. (2 points) Comment on the difference between the 95% and 99% confidence intervals and whether or not the difference is what you would expect.
+There is very little different between the 95% and 99% confidence intervals for the parameters of the fitted model. This is likely because the model is using 7725 observations to generate the prediction. With such a large amount of data to fit the model, the overall confidence with which the model predicts will narrow, which then narrows the confidence interval widths.
+
+11. (3 points) Now fit models with quadratic and cubic terms in the predictor `BPDiaAve` in addition to the linear term. Look at the output of each model with summary and generate 95% confidence intervals for each.
+```{r}
+# quadratic model, output, and 95% confidence intervals
+lm_training_quadratic <- lm(BPSysAve ~ BPDiaAve + I(BPDiaAve^2), data = nhanes09)
+summary(lm_training_quadratic)
+confint(lm_training_quadratic)
+
+# cubic model, output, and 95% confidence intervals
+lm_training_cubic <- lm(BPSysAve ~ BPDiaAve + I(BPDiaAve^2) + I(BPDiaAve^3), 
+                        data = nhanes09)
+summary(lm_training_cubic)
+confint(lm_training_cubic)
+```
+
+12. (2 points) Plot the training data along with the linear, quadratic and cubic fit lines in different colors.
+```{r}
+# make the functions that will go into the curve() function in the plot
+quadratic <- function(x){predict(lm_training_quadratic, 
+                                 newdata = data.frame(BPDiaAve = x))}
+
+cubic <- function(x){predict(lm_training_cubic,
+                             newdata = data.frame(BPDiaAve = x))}
+
+plot(nhanes09$BPDiaAve, nhanes09$BPSysAve,
+     xlab = "Average diastolic blood pressure (mmHg)",
+     ylab = "Average systolic blood pressure (mmHg)",
+     main = "Systolic blood pressure as a function of diastolic blood pressure")
+abline(lm_training, lwd = 3, col = "red")
+curve(quadratic, add = TRUE, lwd = 3, col = "blue")
+curve(cubic, add = TRUE, lwd = 3, col = "green")
+legend("bottomright", lwd = 3, lty = 1,
+       legend = c("Linear model", "Quadratic model", "Cubic model"),
+       col = c("red", "blue", "green"))
+```
+
+13. (1 point) Which would be your preferred model based on the visual fits?
+The cubic model seems to fit the data best based on the above visual representation. There seems to be an initial portion of the data that remains relatively flat and then rises after an inflection point at around 50 mmHg diastolic blood pressure.
+
+14. (3 points) Perform an anova test comparing the 3 models. Does the result seem in line with what you were expecting from the visual fits? Why/why not?
+```{r}
+anova(lm_training, lm_training_quadratic, lm_training_cubic)
+```
+The result is expected based on the visual fits. Although the cubic model seems to fit the data slightly better than the cubic model, this seems to be primarily due to its improvement in the prediction for lower values diastolic blood pressure. Throughout the rest of the values, the quadratic and cubic models do similarly well. This is evidenced by small improvement in the residual sum of squares values generated by the quadratic (2,008,806) vs. the cubic (2,003,134) models. Moreover, the improvement in model fit is statistically significant when moving from the quadratic model to the cubic model. This marginal improvement may say more about the number of observations inputted into the model than about the improvement in predictive performance on a clinically significant scale. However, this improvement is validated by the visual inspection of "best fit" discussed above.
+
+15. (1 point) Now plot `BPSysAve` against `BPDiaAve` for the test data and overlay the fitted linear, quadratic, and cubic models.
+```{r}
+plot(nhanes11$BPDiaAve, nhanes11$BPSysAve,
+     xlab = "Average diastolic blood pressure (mmHg)",
+     ylab = "Average systolic blood pressure (mmHg)",
+     main = "Systolic blood pressure as a function of diastolic blood pressure")
+abline(lm_training, lwd = 3, col = "red")
+curve(quadratic, add = TRUE, lwd = 3, col = "blue")
+curve(cubic, add = TRUE, lwd = 3, col = "green")
+legend("bottomright", lwd = 3, lty = 1,
+       legend = c("Linear model", "Quadratic model", "Cubic model"),
+       col = c("red", "blue", "green"))
+```
+
+16. (3 points) Does this change your opinion at all about which is the best fit? Why/why not?
+This plot does not change my opinion about which model is the "best fit." Visually, the cubic model still seems to explain the testing data better than that of the quadratic model. The reason that it looks like a better fit also seems the same in the testing data as it was for the training data. There is a group of points with low average diastolic blood pressure values that seem to have a relatively constant average systolic blood pressure. This is best explained by the flat initial part of the cubic model curve when overlaid onto the testing data.
+
+## Smoothing kernels:
+17. (3 points) Fit a nearest neighbors curve with `ksmooth` using the "normal" kernel to the `nhanes09` data with bandwidths of 3, 10, and 20.
+```{r}
+band_3 <- ksmooth(nhanes09$BPDiaAve, nhanes09$BPSysAve, kernel = "normal", bandwidth = 3)
+band_10<- ksmooth(nhanes09$BPDiaAve, nhanes09$BPSysAve, kernel = "normal", bandwidth = 10)
+band_20<- ksmooth(nhanes09$BPDiaAve, nhanes09$BPSysAve, kernel = "normal", bandwidth = 20)
+```
+
+18. (2 points) Plot the test data as well as the fitted curves from kernel smoothing and the best model fitted in the previous section using linear regression. Use different colors for each model.
+```{r}
+plot(nhanes11$BPDiaAve, nhanes11$BPSysAve,
+     xlab = "Average diastolic blood pressure (mmHg)",
+     ylab = "Average systolic blood pressure (mmHg)",
+     main = "Systolic blood pressure as a function of diastolic blood pressure")
+lines(band_3, lwd = 3, col = "red")
+lines(band_10, lwd = 3, col = "blue")
+lines(band_20, lwd = 3, col = "green")
+abline(lm_training, lwd = 3, col = "orange")
+legend("bottomright", lwd = 3, lty = 1, cex = 0.7,
+       legend = c("Kernel smoothing, bw = 3", "Kernel smoothing, bw = 10", 
+                  "Kernel smoothing, bw = 20", "Linear model"),
+       col = c("red", "blue", "green", "orange"))
+```
+
+19. (1 point) Based on the above results, which model would you pick? In the next section, we'll evaluate the model based on its test error.
+Based on the above visualization, it seems that the kernel smoothing function with a bandwidth of 20 fits the data best without introduction too much noise into the model from overfitting the data.
+
+## Evaluating error on a test set
+20. (5 points) Evaluate the mean squared error of the fitted models from the "Linear Regression" section on the test data. Also provide standard errors.
+```{r}
+# how to calculate the mean squared error of each model
+## squared error for each value = (true value - predicted value)^2
+## MSE = mean (squared error for each value)
+
+# predict BPSysAve using each model
+list_linear_predictions <-predict(lm_training, newdata = nhanes11, se.fit = TRUE)
+list_quadratic_predictions <- predict(lm_training_quadratic, newdata = nhanes11, se.fit = TRUE)
+list_cubic_predictions <- predict(lm_training_cubic, newdata = nhanes11, se.fit = TRUE)
+
+# calculate the MSE for the linear model
+dt_linear_model <- data.table(true_BPSysAve = nhanes11$BPSysAve,
+                              predicted_BPSysAve = list_linear_predictions$fit)
+dt_linear_model[, residual := true_BPSysAve - predicted_BPSysAve]
+mse_linear_model <- mean(dt_linear_model$residual^2)
+
+# calculate the MSE for the quadratic model
+dt_quadratic_model <- data.table(true_BPSysAve = nhanes11$BPSysAve,
+                                 predicted_BPSysAve = list_quadratic_predictions$fit)
+dt_quadratic_model[, residual := true_BPSysAve - predicted_BPSysAve]
+mse_quadratic_model <- mean(dt_quadratic_model$residual^2)
+
+# calculate the MSA for the cubic model
+dt_cubic_model <- data.table(true_BPSysAve = nhanes11$BPSysAve,
+                             predicted_BPSysAve = list_cubic_predictions$fit)
+dt_cubic_model[, residual := true_BPSysAve - predicted_BPSysAve]
+mse_cubic_model <- mean(dt_cubic_model$residual^2)
+
+# calculate the standard errors for each model
+se_linear <- sd(dt_linear_model$residual^2)/sqrt(length(dt_linear_model$residual))
+se_quadratic <- sd(dt_quadratic_model$residual^2)/sqrt(length(dt_quadratic_model$residual))
+se_cubic <- sd(dt_cubic_model$residual^2)/sqrt(length(dt_cubic_model$residual))
+
+# create a data table to visualize the results
+final_model_evals <- data.table(model = c("linear", "quadratic", "cubic"),
+                                mse = c(mse_linear_model, mse_quadratic_model, mse_cubic_model),
+                                sd_error = c(se_linear, se_quadratic, se_cubic))
+final_model_evals
+```
+
+21. (2 points) Using ANOVA, did we pick the model with the lowest mean squared error on the test data? Why do you think this happened?
+Using ANOVA, the model with the lowest mean squared error was **not** chosen. As seen in the table above, the quadratic model has the lowest mean squared error whereas the ANOVA test above showed the lowest residual sum of squares for the cubic model. This likely means that the cubic model has *very slightly* overfit the training data and is not performing as well on the test dataset. The difference between the mean squared errors of the quadratic and cubic models is very small indicating that both models perform better than the linear model on the test data with minor differences in predictive accuracy between the two.
+
+22. (5 points) Evaluate the mean squared error of the fitted models from kernel smoothing on the test data.
+```{r}
+# predict BPSysAve using each model
+ksmooth_pred_bw3 <- ksmooth(nhanes09$BPDiaAve, nhanes09$BPSysAve, kernel = "normal", bandwidth = 3,
+                            x.points = nhanes11$BPDiaAve)
+ksmooth_pred_bw10 <- ksmooth(nhanes09$BPDiaAve, nhanes09$BPSysAve, kernel = "normal", bandwidth = 10,
+                            x.points = nhanes11$BPDiaAve)
+ksmooth_pred_bw20 <- ksmooth(nhanes09$BPDiaAve, nhanes09$BPSysAve, kernel = "normal", bandwidth = 20,
+                            x.points = nhanes11$BPDiaAve)
+
+# calculate the MSE for the bw = 3 model
+dt_bw3_model <- data.table(true_BPSysAve = nhanes11$BPSysAve,
+                           predicted_BPSysAve = ksmooth_pred_bw3$y)
+dt_bw3_model[, residual := true_BPSysAve - predicted_BPSysAve]
+mse_bw3_model <- mean(dt_bw3_model$residual^2)
+
+# calculate the MSE for the bw = 10 model
+dt_bw10_model <- data.table(true_BPSysAve = nhanes11$BPSysAve,
+                           predicted_BPSysAve = ksmooth_pred_bw10$y)
+dt_bw10_model[, residual := true_BPSysAve - predicted_BPSysAve]
+mse_bw10_model <- mean(dt_bw10_model$residual^2)
+
+# calculate the MSE for the bw = 20 model
+dt_bw20_model <- data.table(true_BPSysAve = nhanes11$BPSysAve,
+                           predicted_BPSysAve = ksmooth_pred_bw20$y)
+dt_bw20_model[, residual := true_BPSysAve - predicted_BPSysAve]
+mse_bw20_model <- mean(dt_bw20_model$residual^2)
+
+# summarize the results of the calculations in a data table
+data.table(model = c("bw3", "bw10", "bw20"),
+           mse = c(mse_bw3_model, mse_bw10_model, mse_bw20_model))
+
+```
+
+23. (1 point) Among all the methods we tried, which one had the lowest test error? Was the test error of your selected model within one standard error of the minimum test error?
+Among all the methods trialed for prediction on the test data, the quadratic regression model had the lowest test mean squared error. The test error of the model that I selected visually and with the ANOVA (i.e., the cubic model) was within one standard error of the minimum test error. Explicitly, the lowest mean squared error&mdash;the quadratic model&mdash;was 249.99. The cubic model had a mean squared error of 250.09&mdash;nearly identical. This is easily within one standard error of the minimum test error: 6.92. This is tantamount to saying that the two models&mdash;quadratic and cubic&mdash;are equally likely to fit the data well, i.e., their mean squared errors are within overlapping standard errors (a similar interpretation to confidence intervals).
