@@ -1,0 +1,146 @@
+---
+title: 'Homework #5: Using a pretrained neural network'
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd("C:/_Mazin/_UCSF ID fellowship/_UCSF TICR courses/_BIOSTAT 216_Machine learning in R")
+library(randomForest)
+set.seed(24)
+
+# Helper function for plotting images
+plot_images <- function(batch) {
+  images <- as_array(batch[[1]]) %>% aperm(perm = c(1, 3, 4, 2))
+  images <- images * 255
+  images[images > 255] <- 255
+  images[images < 0] <- 0
+  
+  par(mfcol = c(4,6), mar = rep(1, 4))
+  
+  images %>%
+    purrr::array_tree(1) %>%
+    purrr::set_names(as_array(batch[[2]])) %>%
+    purrr::map(as.raster, max = 255) %>%
+    purrr::iwalk(~{plot(.x); title(.y)})  
+}
+
+```
+
+1. Install and load the `torch` and `torchvision` packages.
+```{r installTorch}
+library(torch)
+library(torchvision)
+```
+
+2. (1 point) Use the `tiny_imagenet_dataset` method to download a tiny version of the ImageNet dataset and name the dataset 
+3. `train_ds`. Modify the template code as needed. Explain in your own words what the `transform` argument does. (When you 
+4. finally knit this Rmd file, you may need to set `download=FALSE` rather than `download=TRUE`)
+```{r imagenet}
+train_ds <- tiny_imagenet_dataset(
+  getwd(),
+  # set this to download = TRUE the first time you run this code
+  download = FALSE,
+  split="train",
+  transform = function(x) {
+    x %>%
+      transform_to_tensor() %>%
+      transform_resize(c(224, 224))
+  }
+)
+```
+
+3. (1 point) Create a vector `train_subset_ind` containing the index of all observations in `train_ds` with class labels 1, 2, 
+or 3. The class labels are stored in the `targets` attribute.
+```{r}
+train_subset_ind <- which(train_ds$targets %in% c(1,2,3))
+```
+
+4. (1 point) Create a subset of the original dataset composed of only observations with labels 1, 2, or 3 using the `dataset_subset` 
+method and the vector `train_subset_ind` from question 3.
+```{r}
+train_small <- dataset_subset(train_ds, train_subset_ind)
+```
+
+5. (2 points) Randomly select 20 images from the dataset and visualize them. To do this, create a data loader with batch 
+size 20 with `shuffle=TRUE` and name it `train_dl_shuffle`. Read the first batch of data from `train_dl_shuffle` and 
+use the `plot_images` function to plot the images.
+```{r}
+train_dl_shuffle <- dataloader(train_small, batch_size = 20, shuffle = TRUE)
+batch_1 <- train_dl_shuffle$.iter()$.next()
+plot_images(batch_1)
+```
+
+6. (2 points) Create a new data loader for `train_small` that does not shuffle the data. Set the batch size to the
+maximum batch size. Name this new data loader `train_dl`.
+```{r}
+train_dl <- dataloader(train_small, batch_size = 500)
+```
+
+7. (3 points) Load a pretrained ResNet-18 model using the function `model_resnet18` with `pretrained=TRUE`. Name 
+the pretrained model `pretrained_resnet`. List the types of layers used in ResNet-18.
+```{r}
+pretrained_resnet <- model_resnet18(pretrained = TRUE)
+pretrained_resnet$modules
+```
+
+The layers used in the ResNet-18 are a 2-dimensional convolutional layer, a 2-dimentional max pool layer, and 4 
+sequential layers (1, 2, 3, and 4) containing two 2-dimensional convoluctional layers each. Layers 3 and 4 have a 
+downsample sequential layer that both also contain 2-dimensional convolutional layers. A final average pool is performed.
+
+## Extracting features using a pretrained neural network
+
+8. (1 point) Our goal is to train a new model using the extracted features by ResNet-18. We'll use the penultimate 
+layer as the extracted features. To get extracted features, replace the last layer in `pretrained_resnet` with an 
+identity module. That is, set the `fc` attribute in `pretrained_resnet` to a newly created identity module using 
+the `nn_identity` function.
+```{r}
+pretrained_resnet$fc <- nn_identity()
+```
+
+9. (1 point) Set the pretrained ResNet-18 model to evaluation mode by calling the `eval` method of the `pretrained_resnet` object.
+```{r}
+pretrained_resnet$eval()
+```
+
+10. (1 point) Read the first batch of data from the data loader.
+```{r}
+b1 <- train_dl$.iter()$.next()
+```
+
+11. (2 points) Feed this batch of data through our (modified) pretrained network `pretrained_resnet` to get the values 
+of the penultimate layer. What is the dimension of this output? Print the embedding for the first observation.
+```{r}
+output <- pretrained_resnet(b1[[1]])
+dim(output)
+output[1,]
+```
+
+## Training a model using extracted features
+
+12. (2 points) Create a data frame with the embeddings from ResNet-18 and their corresponding class labels.
+```{r}
+df_embed <- as.data.frame(as_array(output))
+df_embed$class <- as_array(batch_1$y)
+```
+
+13. (2 points) Split this data so that 4/5 of the data is used for training and 1/5 of it is used for testing.
+```{r}
+rnd_idx <- sample(seq(nrow(df_embed)), size = ((4/5)*nrow(df_embed)))
+df_embed_train <- df_embed[rnd_idx,]
+df_embed_test <- df_embed[-rnd_idx,]
+```
+
+14. (2 points) Fit a random forest for this multiclassification problem using the training data. Use the default hyperparameter settings.
+```{r}
+rf_model <- randomForest(x=df_embed_train[,-c(513)], y=factor(df_embed_train$class),
+                         data = df_embed_train)
+```
+
+15. (1 point) Evaluate the random forest model on the test data. What is the accuracy of this model?
+```{r}
+preds <- predict(rf_model, newdata = df_embed_test)
+mean(df_embed_test$class == preds)
+```
