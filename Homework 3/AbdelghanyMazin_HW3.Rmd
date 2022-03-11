@@ -1,0 +1,316 @@
+---
+title: "Abdelghany_HW3"
+output: html_document
+---
+
+## Maximum margin classifiers
+```{r setup, echo=FALSE, message=FALSE}
+library(ggplot2)
+library(e1071)
+library(data.table)
+library(caret)
+library(kernlab)
+
+setwd("C:/_Mazin/_UCSF ID fellowship/_UCSF TICR courses/_BIOSTAT 216_Machine learning in R")
+```
+
+
+1. Run the following code to create a simple dataset. 
+```{r simulation}
+X1 <- c(3,1,3,1,2,4,4)
+X2 <- c(4,2,3,4,1,3,1)
+Y <- c(rep("Red",4),rep("Blue",3))
+dat <- data.frame(X1,X2,Y)
+print(dat)
+```
+
+2. Plot the data. Color-code the points by their outcome value `Y`.
+```{r}
+ggplot(dat, aes(x = X1, y = X2, color = Y)) +
+    geom_point() +
+    scale_color_manual(values = c("blue", "red")) +
+    labs(title = "X1 by X2 colored by Y")
+```
+
+3. (3 points) Fit a maximal margin classifier with a linear decision boundary to this dataset using the `svm` function 
+from `e1071`. Use the option `scale=FALSE` so that the model does not do post-processing of the training data. Plot 
+the fitted model.
+```{r}
+svm_model <- svm(factor(Y) ~ ., data = dat, scale = FALSE, kernel = "linear", cost = 10)
+# see below for plot of svm_model (in number 4) to compare to added point model
+```
+
+4. (1 point) Use the `coef` function to extract model coefficients from the maximum margin classifier.
+```{r}
+coef(svm_model)
+```
+
+5. (2 points) Suppose we are going to add another observation to the dataset and refit the maximum margin 
+classifier. Give a new datapoint that, when added to this dataset, will not change the decision boundary. 
+Refit the model to double check. Call this new datapoint `point1`.
+```{r}
+# generate point1 as a list
+point1 <- list(X1 = 0, X2 = 5, Y = "Red")
+
+# add point1 to the dataset and call it dat2
+dat2 <- rbind(dat, point1)
+
+# fit a new SVM model
+svm_model2 <- svm(factor(Y) ~ ., data = dat2, scale = FALSE, kernel = "linear", cost = 10)
+
+# create a data table showing that the coefficients are nearly equal
+data.table(
+    labels = c("Intercept", "X1", "X2"),
+    SVM_model1 = coef(svm_model),
+    SVM_model2 = coef(svm_model2)
+)
+
+# plot the two SVM models showing a nearly equivalent decision boundary
+plot(svm_model, data = dat)
+plot(svm_model2, data = dat2)
+```
+
+6. (2 points) Now give a new datapoint that, when added to dataset `dat`, WILL change the decision boundary. 
+Call this new datapoint `point2`. Pick an example point where the new dataset remains linearly separable.
+```{r}
+# generate point2 as a list
+point2 <- list(X1 = 1, X2 = 1.5, Y = "Blue")
+
+# add point2 to the dataset and call it dat3
+dat3 <- rbind(dat, point2)
+
+# fit a new SVM model
+svm_model3 <- svm(factor(Y) ~ ., data = dat3, scale = FALSE, kernel = "linear", cost = 10)
+
+# create a data table showing that the coefficients are different
+data.table(
+    labels = c("Intercept", "X1", "X2"),
+    SVM_model1 = coef(svm_model),
+    SVM_model3 = coef(svm_model3)
+)
+
+# plot the two SVM models showing two different decision boundaries
+plot(svm_model, data = dat)
+plot(svm_model3, data = dat3)
+```
+
+## Support vector machines
+ 
+7. Read in the dementia data "dementia2.csv" into a data frame called `dementia_dat`. This data is from the 
+UCSF Memory and Aging Center. The goal was to predict the type of dementia based on patterns of brain loss as
+measured through structural MRI.
+```{r}
+dementia_dat <- fread("dementia2_hw3.csv")
+dementia_dat <- data.frame(dementia_dat)
+```
+
+8. (1 point) We will now predict the dementia diagnosis based on the available predictors. The diagnosis is 
+given in the multiclass outcome of `MacCohort_kr`. To start, generate a table of the elements in 
+the `MacCohort_kr` variable.
+```{r}
+# make MacCohort_kr a factor
+dementia_dat$MacCohort_kr <- factor(dementia_dat$MacCohort_kr)
+class(dementia_dat$MacCohort_kr)
+
+# make dementia a factor
+dementia_dat$Dementia <- factor(dementia_dat$Dementia)
+class(dementia_dat$Dementia)
+
+# generate a table
+table(dementia_dat$MacCohort_kr)
+```
+
+9. (1 point) Set the random seed to 7 and then split the data into 2 sets (440 train, and 220 test)
+```{r}
+set.seed(7)
+
+# create the sampling index
+sampler <- createDataPartition(dementia_dat$MacCohort_kr, 
+                               times = 1, 
+                               p = 436/660,
+                               list = FALSE)
+
+# training set
+dementia_dat_train <- dementia_dat[sampler, ]
+nrow(dementia_dat_train)
+
+# test set
+dementia_dat_test <- dementia_dat[-sampler, ]
+nrow(dementia_dat_test)
+```
+
+10. (3 points) Fit a support vector machine to predict `MacCohort_kr` using predictors `Left_MTG_middle_temporal_gyrus`,
+`Left_Amygdala` and `Left_AIns_anterior_insula`,  with a radial basis kernel. Use 3-fold CV to tune the value of the 
+`C` and `sigma` hyperparameters. Use the `caret` package with `method=svmRadial` and tune over the values 
+`C = 1e-2,1e-1,1,10,100,1000,10000` and `sigma=1e-4,1e-3,1e-2,1e-1, 1,10`. (You may need the `kernlab` package to run this.)
+```{r}
+# perform 3-fold cross-validation
+fitControl <- trainControl(method = "cv", number = 3)
+
+# set the range of C values to tune across
+C.values <- data.frame(C = c(1e-2, 1e-1, 1, 10, 100, 1000, 10000))
+
+# set the range of sigma values to tune across
+sigma.values <- data.frame(sigma = c(1e-4, 1e-3, 1e-2, 1e-1, 1, 10))
+
+# generate a matrix of C and sigma values to use for hyperparameter tuning
+tune.matrix <- merge(C.values, sigma.values, all = TRUE)
+
+# create a data frame with only the variables of interest
+dementia_dat_train <- dementia_dat_train[,c("MacCohort_kr", "Left_MTG_middle_temporal_gyrus",
+                                            "Left_Amygdala", "Left_AIns_anterior_insula")]
+dementia_dat_test <- dementia_dat_test[,c("MacCohort_kr", "Left_MTG_middle_temporal_gyrus",
+                                            "Left_Amygdala", "Left_AIns_anterior_insula")]
+
+# tune the SVM model using 3-fold cross-validation and the tune.matrix above
+cv.svm.model <- train(x = dementia_dat_train[,2:4],
+                      y = dementia_dat_train$MacCohort_kr,
+                      trControl = fitControl,
+                      method = "svmRadial",
+                      tuneGrid = tune.matrix)
+
+tuned.svm.model <- cv.svm.model$finalModel
+tuned.svm.model
+```
+
+11. (1 points) Determine the predictions of the SVM fit on the test dataset. What is the test accuracy?
+```{r}
+# determine the predictions
+svm.test.predictions <- predict(tuned.svm.model, 
+                                newdata = dementia_dat_test[,-1],
+                                type = "response")
+
+# Find the test accuracy manually 
+mean(svm.test.predictions == dementia_dat_test[,1])
+
+# Find the test accuracy using confusionMatrix()
+confusionMatrix(data = svm.test.predictions, reference = dementia_dat_test[,1])
+```
+
+12. (3 points) What is the accuracy of a model that randomly guesses the class label simply based on the fraction 
+of observations in each class? Is the SVM doing better than random guessing?
+```{r}
+# pull possible predictions from the data set
+possible.pred <- names(table(dementia_dat_train$MacCohort_kr))
+# generate vector of probabilities for each possible prediction using prevalence
+probabilities <- table(dementia_dat_train$MacCohort_kr)/sum(table(dementia_dat_train$MacCohort_kr))
+# sample each possible prediction at the probability of its respective prevalence
+mac_kr <- sample(possible.pred, size = sum(table(dementia_dat_test$MacCohort_kr)), 
+                 replace = TRUE, prob = probabilities)
+
+# Find the test accuracy manually 
+mean(factor(mac_kr) == dementia_dat_test[,2])
+
+# Find the test accuracy using confusionMatrix()
+confusionMatrix(data = factor(mac_kr), reference = dementia_dat_test[,1])
+```
+
+After generating a vector of predictions using the prevalence as the probability that each prediction can be 
+selected, the accuracy is ~33%. This is considerably less than the accuracy of the SVM model, ~66%. The SVM model 
+is performing about twice as better than random guesses based on prevalence.
+
+## Classification and Regression Trees
+
+13. Read in the breast cancer imaging data "ispy1doctored.csv" into a data frame called `dat`. The iSPY1 trial was 
+a prospective study to test if we could use MRIs to predict response to treatment and risk-of-recurrence in patients
+with stage 2 or 3 breast cancer receiving neoadjuvant chemotherapy (NACT).
+```{r}
+dat <- fread("ispy1doctored.csv")
+```
+
+14. Load the `rpart` package. Set the random seed to 10.
+```{r}
+library(rpart)
+library(rpart.plot)
+set.seed(10)
+```
+
+15. (1 point) Generate a histogram of the `MRI_LD_Tfinal` variable that will be our outcome to predict.
+```{r}
+hist(dat$MRI_LD_Tfinal, plot=TRUE,
+     main = "Histogram of MRI_LD_Tfinal variable",
+     xlab = "Value of MRI_LD_Tfinal")
+```
+
+16. (1 point) Split the dataset into a training set of size 70 and a test set consisting of the remaining data.
+```{r}
+# create the sampling index
+sampler2 <- createDataPartition(dat$MRI_LD_Tfinal,
+                                times = 1,
+                                p = 68/134,
+                                list = FALSE)
+
+# training set
+dat_train <- dat[sampler2, ]
+nrow(dat_train)
+
+# test set
+dat_test <- dat[-sampler2, ]
+nrow(dat_test)
+```
+
+17. (3 points) Fit a regression tree to the training data with `MRI_LD_Tfinal` as outcome and all other variables 
+as candidate predictors. Make sure that you specify the correct method for regression. Plot the fitted tree with text labels.
+```{r}
+dat_tree <- rpart(MRI_LD_Tfinal ~ ., data = dat_train, method = "anova")
+rpart.plot(dat_tree)
+```
+
+18. (1 point) How many partitions does the fitted tree have?
+The fitted tree has four partitions.
+
+19. (2 points) Determine the mean squared error (MSE) of the fitted tree based on the test data.
+```{r}
+# HR_HER2status factor had an empty level in the test data that needed to be removed
+# in order for predict() to work properly
+predictions <- predict(dat_tree, newdata = dat_test[HR_HER2status!=""])
+
+# manual calculation of mean squared error, again removing empty HR_HER2status
+mean((predictions - dat_test[HR_HER2status!=""]$MRI_LD_Tfinal)^2)
+```
+
+## Bagging
+
+20. Load the `randomForest` package and set the random seed to 4
+```{r, message=FALSE}
+library(randomForest)
+set.seed(4)
+```
+
+21. (2 points) Perform bagging with `MRI_LD_Tfinal` as outcome and all other variables as candidate predictors.
+```{r}
+dat_bagging <- randomForest(MRI_LD_Tfinal ~., data = dat_train, mtry = 16, importance = TRUE)
+dat_bagging
+```
+
+22. (1 point) Determine the mean squared error (MSE) of the bagging based on the test data.
+```{r}
+predictions2 <- predict(dat_bagging, newdata = dat_test[HR_HER2status!=""])
+mean((predictions2 - dat_test[HR_HER2status!=""]$MRI_LD_Tfinal)^2)
+```
+
+## Random Forests
+
+23. (2 points) Set the seed to 4 again and perform random forests with 6 candidate predictors per tree, `MRI_LD_Tfinal` as 
+outcome and all other variables as candidate predictors.
+```{r}
+set.seed(4)
+dat_forest_6 <- randomForest(MRI_LD_Tfinal ~., data = dat_train, mtry = 6, importance = TRUE)
+dat_forest_6
+```
+
+24. (1 point) Determine the mean squared error (MSE) of the random forest based on the test data.
+```{r}
+predictions3 <- predict(dat_forest_6, newdata = dat_test[HR_HER2status!=""])
+mean((predictions3 - dat_test[HR_HER2status!=""]$MRI_LD_Tfinal)^2)
+```
+
+25. (2 points) Plot the variable importance from the random forest. Use the importance measured in terms of the 
+mean increase in mean squared error. Based on this importance measure, which variable is most important? Which 
+variable is least important?
+```{r}
+varImpPlot(dat_forest_6, type = 1, main = "Variable importance in random forest, mtry = 6")
+```
+
+For the model using 6 predictors, `dat_forest_6`, the most important variable based on percent increase 
+in mean squared is `MRI_LD_T2`. The least important variable based on this metric is `race`.
